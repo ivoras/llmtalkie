@@ -76,12 +76,12 @@ def main():
         model="llama3.2",
         options={
             "num_ctx": 16384,
-            "temperature": 0.2,
+            "temperature": 0.1,
         },
         input_data={"text": text},
         prompt="""
-List up to 30 people names appearing in the following text. If unsure, output an empty list.
-Please output data formatted as JSON like in this example:
+List up to 30 people names appearing in the following text, that might be involved in politics.
+If unsure, output an empty list. Please output data formatted as JSON like in this example:
 
 {
   "people": [ "John Doe", "Person Name" ]
@@ -99,7 +99,7 @@ $text
         model="qwen2.5:14b", # we need a smarter model for this step
         options={
             "num_ctx": 16384,
-            "temperature": 0.2,
+            "temperature": 0.1,
         },
         input_data={"text": text},
         prompt="""
@@ -127,7 +127,7 @@ $people
 
     talkie.execute_steps([step1, step2])
 
-    #pprint.pp(step1.result)
+    pprint.pp(step1.result)
     pprint.pp(step2.response)
 
 
