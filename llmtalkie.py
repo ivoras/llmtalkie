@@ -42,7 +42,7 @@ class LLMStep:
                  model: str = DEFAULT_MODEL,
                  options: dict[str, Any] = DEFAULT_OPTIONS,
                  role: str = "user",
-                 callback: Callable[["LLMStep", str|dict], dict] = None,
+                 callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  json_response: bool = True,
                  include_history: bool = False,
@@ -59,8 +59,9 @@ class LLMStep:
         self.include_history = include_history
         self.input_data = input_data
 
-        self.has_response = False
-        self.raw_response = None # Raw response from the LLM
+        self.has_response: bool = False
+        self.raw_response: str = None # Raw response from the LLM
+        self.response: dict = None # Response as dict, parsed from raw_response. If json_response is false, set to {"response": raw_response}
         self.result: dict = None # Whatever the callback returns. If callback is None, set to {"response": raw_response}
 
 
@@ -80,7 +81,7 @@ class LLMTalkie:
                  url: str = None,
                  model: str = None,
                  options: dict[str, Any] = None,
-                 callback: Callable[["LLMStep", str|dict], dict] = None,
+                 callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  include_history: bool = True,
                  json_response: bool = True,
@@ -123,9 +124,8 @@ class LLMTalkie:
         messages = self._mk_empty_messages()
         for i, step in enumerate(steps):
             tpl = Template(step.prompt)
-            if step.previous_step:
-                if i == 0:
-                    raise LLMTalkieException(f"First step cannot have previous_step")
+            if i > 0:
+                step.previous_step = steps[i-1]
                 prev_response = step.previous_step.result if step.previous_step.result else {}
                 input_data = step.input_data if step.input_data else {}
                 prompt_data = { **prev_response, **input_data }
@@ -146,7 +146,9 @@ class LLMTalkie:
 
             print(f"**** Messages approx word count: {self._count_messages_words(messages)}")
 
-            raw_response: str|dict = None
+            raw_response: str = None
+            response: str|dict = None
+
             if step.json_response:
                 for retry in range(self.llm_retry):
                     r = requests.post(
@@ -160,12 +162,15 @@ class LLMTalkie:
                         }
                     )
                     result = r.json()
-                    print(result)
+                    if 'error' in result:
+                        log.error(result)
+                        break
                     assert result["model"] == step.model
                     assert result["done"]
                     assert result["message"]["role"] == "assistant"
+                    raw_response = result["message"]["content"]
                     try:
-                        raw_response = json.loads(result["message"]["content"])
+                        response = json.loads(raw_response)
                         break
                     except json.JSONDecodeError as e:
                         log.error(f"Error parsing LLM response: {e} ({result['message']['content']}). Try #{retry}/{self.llm_retry}")
@@ -175,9 +180,13 @@ class LLMTalkie:
                     raise LLMTalkieException("Retry limit reached, LLM did not produce valid JSON")
             else:
                 raw_response = result["message"]["content"]
+                response = {"response": raw_response}
 
             step.raw_response = raw_response
+            step.response = response
             step.has_response = True
             if step.callback:
-                step.result = step.callback(step, raw_response)
+                step.result = step.callback(step)
+            else:
+                step.result = None
 
