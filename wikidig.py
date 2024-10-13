@@ -5,7 +5,7 @@ from time import sleep
 import pprint
 import requests
 
-from llmtalkie import LLMTalkie, LLMStep
+from llmtalkie import LLMTalkie, LLMStep, LLMConfig
 from wikidig_utils import wikimedia2md
 
 # We'll scrape Wikipedia in search of political leaders,
@@ -14,11 +14,33 @@ from wikidig_utils import wikimedia2md
 # to use Wikipedia's good old-fashioned search to get more useful starting pages.
 # and extract mechanical data like links with regexps instead of LLMs.
 #
-# This demo requires a system with at least 12 GB of VRAM and
+# This demo requires a system with at least 24 GB of VRAM and
 # the following LLMs to be installed in ollama:
 #
 # * llama3.2
 # * qwen2.5:14b
+
+LLM_LOCAL_LLAMA32 = LLMConfig(
+    url = "http://localhost:11434/api/chat",
+    model_name = "llama3.2",
+    system_message = "You are a helpful research assistent, analyzing topics in Wikipedia articles according to the instructions. You output only JSON documents and nothing else. Do not output explanations or comments. Stop after outputting JSON.",
+    temperature = 0.3,
+    options = {
+        "num_ctx": 16384, # Almost every time the LLM returns prose instead of JSON, the context size is too small
+        "num_predict": -2,
+    }
+)
+
+LLM_LOCAL_QWEN25_14B = LLMConfig(
+    url = "http://localhost:11434/api/chat",
+    model_name = "qwen2.5:14b",
+    system_message = "You are a helpful research assistent, analyzing topics in Wikipedia articles according to the instructions. You output only JSON documents and nothing else. Do not output explanations or comments. Stop after outputting JSON.",
+    temperature = 0.2,
+    options = {
+        "num_ctx": 8192,
+        "num_predict": -2,
+    }
+)
 
 RE_WP_REDIRECT = re.compile(r"#REDIRECT\s*\[(.+?)[\n\]]")
 
@@ -40,9 +62,7 @@ def main():
 
     result = {} # e.g. { "Person Name": "What they did" }
 
-    talkie = LLMTalkie(
-        system_message="You are a helpful research assistent, analyzing topics in Wikipedia articles according to the instructions. You output only JSON documents and nothing else. Do not output explanations or comments.",
-    )
+    talkie = LLMTalkie()
 
     pages_queue.append("History") # Starting page
 
@@ -73,21 +93,17 @@ def main():
 
     # Step 1 uses a small and fast model
     step1 = talkie.new_step(
-        model="llama3.2",
-        options={
-            "num_ctx": 16384,
-            "temperature": 0.1,
-        },
+        llm_config = LLM_LOCAL_LLAMA32,
         input_data={"text": text},
         prompt="""
-List up to 30 people names appearing in the following text, that might be involved in politics.
-If unsure, output an empty list. Please output data formatted as JSON like in this example:
+List up to 30 people names appearing in section tited "Text", who might be involved in politics or social movements.
+If not sure, output an empty list. Please output data formatted as JSON like in this example:
 
 {
   "people": [ "John Doe", "Person Name" ]
 }
 
-The text to analyze is:
+# Text
 
 $text
 """.lstrip(),
@@ -96,17 +112,14 @@ $text
     )
 
     step2 = talkie.new_step(
-        model="qwen2.5:14b", # we need a smarter model for this step
-        options={
-            "num_ctx": 16384,
-            "temperature": 0.1,
-        },
+        llm_config = LLM_LOCAL_QWEN25_14B,
         input_data={"text": text},
+        include_history=False,
         prompt="""
 Your task is to analyze the following sections containing texts about people. Each section is
 titled with a person's name. Analyze all the available sections and for each person,
-output YES or NO, depending of if the text for the person indicates
-they were a political leader.
+output YES or NO, depending of if the text for the person indicates they were
+either a political leader, social leader, or a revolutionary.
 
 Please output the data formatted as JSON like in this example:
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import logging
 import json
 import sys, os
@@ -6,6 +7,27 @@ from string import Template
 from typing import Any, Callable
 
 import requests
+
+
+@dataclass(kw_only=True, frozen=True)
+class LLMConfig:
+    url: str
+    model_name: str
+    system_message: str
+    temperature: float
+    options: dict[str,Any]
+
+
+LLM_LOCAL_LLAMA32 = LLMConfig(
+    url = "http://localhost:11434/api/chat",
+    model_name = "llama3.2",
+    system_message = "You are a knowledgable assistant. You can answer questions and perform tasks.",
+    temperature = 0.3,
+    options = {
+        "num_ctx": 2048,
+        "num_predict": -2,
+    }
+)
 
 class LLMTalkieException(Exception): pass
 
@@ -29,18 +51,10 @@ class LLMStep:
     Construct one of these for every message in the chat history / plan.
     """
 
-    DEFAULT_URL = "http://localhost:11434/api/chat"
-    DEFAULT_MODEL = "llama3.2"
-
-    DEFAULT_OPTIONS = {
-        "num_ctx": 2048,
-        "num_predict": -2
-    }
+    DEFAULT_LLM_CONFIG = LLM_LOCAL_LLAMA32
 
     def __init__(self, *,
-                 url: str = DEFAULT_URL,
-                 model: str = DEFAULT_MODEL,
-                 options: dict[str, Any] = DEFAULT_OPTIONS,
+                 llm_config: LLMConfig,
                  role: str = "user",
                  callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
@@ -48,9 +62,7 @@ class LLMStep:
                  include_history: bool = False,
                  input_data: dict[str, Any],
                  prompt: str):
-        self.url = url
-        self.model = model
-        self.options = options
+        self.llm_config = llm_config
         self.role = role
         self.prompt = prompt
         self.callback = callback
@@ -70,32 +82,23 @@ class LLMTalkie:
     An agent system for talking to LLMs.
     """
 
-    def __init__(self, *, url: str = LLMStep.DEFAULT_URL, model: str = LLMStep.DEFAULT_MODEL, options: dict[str, Any] = LLMStep.DEFAULT_OPTIONS, system_message: str = None, llm_retry: int = 5):
-        self.url = url
-        self.model = model
-        self.options = options
-        self.system_message = system_message
+    def __init__(self, *, llm_config: LLMConfig = None, llm_retry: int = 5):
+        if llm_config is None:
+            llm_config = LLM_LOCAL_LLAMA32
+        self.llm_config = llm_config
         self.llm_retry = llm_retry
 
     def new_step(self, *,
-                 url: str = None,
-                 model: str = None,
-                 options: dict[str, Any] = None,
+                 llm_config: LLMConfig = None,
                  callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  include_history: bool = True,
                  json_response: bool = True,
                  input_data: dict[str, Any],
                  prompt: str) -> LLMStep:
-        if url is None:
-            url = self.url
-        if model is None:
-            model = self.model
-        if options is None:
-            options = self.options
-        return LLMStep(url = url,
-                       model = model,
-                       options = options,
+        if llm_config is None:
+            llm_config = self.llm_config
+        return LLMStep(llm_config = llm_config,
                        callback = callback,
                        previous_step = previous_step,
                        include_history = include_history,
@@ -103,15 +106,6 @@ class LLMTalkie:
                        input_data = input_data,
                        prompt = prompt)
 
-
-    def _mk_empty_messages(self):
-        if self.system_message:
-            return [{
-                "role": "system",
-                "content": self.system_message,
-            }]
-        else:
-            return []
 
     def _count_messages_words(self, messages: str) -> int:
         count = 0
@@ -121,8 +115,20 @@ class LLMTalkie:
 
 
     def execute_steps(self, steps: list[LLMStep]):
-        messages = self._mk_empty_messages()
+
+        def _mk_empty_messages(step: LLMStep):
+            if step.llm_config.system_message:
+                return [{
+                    "role": "system",
+                    "content": step.llm_config.system_message,
+                }]
+            else:
+                return []
+
         for i, step in enumerate(steps):
+            if i == 0:
+                messages = _mk_empty_messages(step)
+
             tpl = Template(step.prompt)
             if i > 0:
                 step.previous_step = steps[i-1]
@@ -137,7 +143,7 @@ class LLMTalkie:
                     content = step.prompt
 
             if not step.include_history:
-                messages = self._mk_empty_messages()
+                messages = _mk_empty_messages(step)
 
             messages.append({
                 "role": step.role,
@@ -152,10 +158,10 @@ class LLMTalkie:
             if step.json_response:
                 for retry in range(self.llm_retry):
                     r = requests.post(
-                        self.url,
+                        self.llm_config.url,
                         json={
-                            "model": step.model,
-                            "options": step.options,
+                            "model": step.llm_config.model_name,
+                            "options": step.llm_config.options,
                             "stream": False,
                             "keep_alive": "30m",
                             "messages": messages,
@@ -165,7 +171,7 @@ class LLMTalkie:
                     if 'error' in result:
                         log.error(result)
                         break
-                    assert result["model"] == step.model
+                    assert result["model"] == step.llm_config.model_name
                     assert result["done"]
                     assert result["message"]["role"] == "assistant"
                     raw_response = result["message"]["content"]
@@ -189,4 +195,3 @@ class LLMTalkie:
                 step.result = step.callback(step)
             else:
                 step.result = None
-
