@@ -75,6 +75,7 @@ class LLMStep:
         self.include_history = include_history
         self.input_data = input_data if input_data is not None else {}
 
+        self.prompt_data: dict = {} # Data passed to the prompt template
         self.has_response: bool = False
         self.raw_response: str = None # Raw response from the LLM
         self.response: dict = None # Response as dict, parsed from raw_response. If json_response is false, set to {"response": raw_response}
@@ -149,11 +150,12 @@ class LLMTalkie:
                 else:
                     input_data = {}
 
-                prompt_data = { **prev_response, **input_data }
-                content = tpl.substitute(prompt_data)
+                step.prompt_data = { **prev_response, **input_data }
+                content = tpl.substitute(step.prompt_data)
             else:
+                step.prompt_data = step.input_data
                 if step.input_data:
-                    content = tpl.substitute(step.input_data)
+                    content = tpl.substitute(step.prompt_data)
                 else:
                     content = step.prompt
 
