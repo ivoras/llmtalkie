@@ -79,10 +79,26 @@ $topic_sections
     json_response = False,
     )
 
-    talkie.execute_steps([step1, step2])
+    step3 = LLMStep(
+        llm_config = LLM_LOCAL_DARKEST_PLANET,
+        input_callback = lambda step: step.previous_step.prompt_data,
+        include_history = False,
+        prompt = """
+Based on these world events in the following sections, write instructions how can individual faithful practically contribute in their daily lives towards making the world better.
+Do not reference any Bible quotes in this text, and write it as a practical, worldy text, not as a classical sermon.
 
-    pprint.pp(step1.response)
+Start with "What can we do?" and end with "Amen."
+
+$topic_sections
+""".lstrip(),
+        json_response = False,
+    )
+
+    talkie.execute_steps([step1, step2, step3])
+
+    pprint.pp(step1.response, width=120)
     pprint.pp(step2.response, width=120)
+    pprint.pp(step3.response, width=120)
 
 
 
