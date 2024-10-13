@@ -65,13 +65,13 @@ $news_items
 
     step2 = LLMStep(
         llm_config = LLM_LOCAL_DARKEST_PLANET,
-        input_callback = lambda step: { "topic_sections": "\n".join([f"# {t['topic']}\n\n* Bible reference: {t['bible_reference']}\n* Bible quote: {t['bible_quote']}\n* Relation to the real-world events: {t['news_item']}\n" for t in step.previous_step.response['topics']]) },
+        input_callback = lambda step: { "topic_sections": "\n".join([f"## {t['topic']}\n\n* Bible reference: {t['bible_reference']}\n* Bible quote: {t['bible_quote']}\n* Relation to the world events: {t['news_item']}\n" for t in step.previous_step.response['topics']]) },
         prompt = """
 Write a sermon worthy of the Pope on the impact of the topics described in the following sections on the modern world.
 
 Use Bible quotes sparingly. Envision a world when, with Jesus's help the described problems will be solved, through the workings of good men. Also mention one of the general problems of the Church in modern times and call on all the faithful to aid in solving it. The sermon should be long, and it should inspire listeners to act for the betterment of the global society. It should also contain dire apocalyptic warnings of what will happen if the poeople do not contribute to a better world.
 
-Do not output commentary of the sermon, or instructions of what the faithful should do during the mass. Finish with "Amen."
+Do not reference Bible quotes that are not included in the sections below. Do not output commentary of the sermon, or instructions of what the faithful should do during the mass. Begin with "Blessings of peace to all of you, my brothers and sisters." Finish with "Amen."
 
 $topic_sections
 

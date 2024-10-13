@@ -2,12 +2,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import json
+import re
 import sys, os
 from string import Template
 from typing import Any, Callable
 
 import requests
 
+RE_MD_JSON = re.compile("```(?:json)\n(.+)```", re.DOTALL)
 
 @dataclass(kw_only=True, frozen=True)
 class LLMConfig:
@@ -188,6 +190,8 @@ class LLMTalkie:
                     assert result["done"]
                     assert result["message"]["role"] == "assistant"
                     raw_response = result["message"]["content"]
+                    if raw_response.find("```") != -1:
+                        raw_response = RE_MD_JSON.sub(r"\1", raw_response)
                     try:
                         response = json.loads(raw_response)
                         break
