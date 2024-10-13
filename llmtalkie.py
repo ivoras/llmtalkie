@@ -56,20 +56,22 @@ class LLMStep:
     def __init__(self, *,
                  llm_config: LLMConfig,
                  role: str = "user",
-                 callback: Callable[["LLMStep"], dict] = None,
+                 input_callback: Callable[["LLMStep"], dict] = None,
+                 result_callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  json_response: bool = True,
                  include_history: bool = False,
-                 input_data: dict[str, Any],
+                 input_data: dict[str, Any] = None,
                  prompt: str):
         self.llm_config = llm_config
         self.role = role
         self.prompt = prompt
-        self.callback = callback
+        self.input_callback = input_callback
+        self.result_callback = result_callback
         self.previous_step = previous_step
         self.json_response = json_response
         self.include_history = include_history
-        self.input_data = input_data
+        self.input_data = input_data if input_data is not None else {}
 
         self.has_response: bool = False
         self.raw_response: str = None # Raw response from the LLM
@@ -90,16 +92,20 @@ class LLMTalkie:
 
     def new_step(self, *,
                  llm_config: LLMConfig = None,
-                 callback: Callable[["LLMStep"], dict] = None,
+                 result_callback: Callable[["LLMStep"], dict] = None,
+                 input_callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  include_history: bool = True,
                  json_response: bool = True,
-                 input_data: dict[str, Any],
+                 input_data: dict[str, Any] = None,
                  prompt: str) -> LLMStep:
         if llm_config is None:
             llm_config = self.llm_config
+        if input_data is None:
+            input_data = {}
         return LLMStep(llm_config = llm_config,
-                       callback = callback,
+                       result_callback = result_callback,
+                       input_callback = input_callback,
                        previous_step = previous_step,
                        include_history = include_history,
                        json_response = json_response,
@@ -133,7 +139,14 @@ class LLMTalkie:
             if i > 0:
                 step.previous_step = steps[i-1]
                 prev_response = step.previous_step.result if step.previous_step.result else {}
-                input_data = step.input_data if step.input_data else {}
+
+                if step.input_callback:
+                    input_data = step.input_callback(step)
+                elif step.input_data:
+                    input_data = step.input_data
+                else:
+                    input_data = {}
+
                 prompt_data = { **prev_response, **input_data }
                 content = tpl.substitute(prompt_data)
             else:
@@ -185,13 +198,31 @@ class LLMTalkie:
                 if raw_response is None:
                     raise LLMTalkieException("Retry limit reached, LLM did not produce valid JSON")
             else:
+                # No need to retry prose writing.
+                r = requests.post(
+                    self.llm_config.url,
+                    json={
+                        "model": step.llm_config.model_name,
+                        "options": step.llm_config.options,
+                        "stream": False,
+                        "keep_alive": "30m",
+                        "messages": messages,
+                    }
+                )
+                result = r.json()
+                if 'error' in result:
+                    log.error(result)
+                    break
+                assert result["model"] == step.llm_config.model_name
+                assert result["done"]
+                assert result["message"]["role"] == "assistant"
                 raw_response = result["message"]["content"]
                 response = {"response": raw_response}
 
             step.raw_response = raw_response
             step.response = response
             step.has_response = True
-            if step.callback:
-                step.result = step.callback(step)
+            if step.result_callback:
+                step.result = step.result_callback(step)
             else:
                 step.result = None

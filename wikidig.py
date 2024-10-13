@@ -108,7 +108,7 @@ If not sure, output an empty list. Please output data formatted as JSON like in 
 $text
 """.lstrip(),
         # Called when LLM generates the response from this step, prepares the result for the following step
-        callback=fetch_people_descriptions,
+        result_callback=fetch_people_descriptions,
     )
 
     step2 = talkie.new_step(
@@ -134,7 +134,7 @@ The text to analyze is:
 
 $people
 """.lstrip(),
-        callback=lambda x: x,
+        result_callback=lambda x: x,
     )
 
 
