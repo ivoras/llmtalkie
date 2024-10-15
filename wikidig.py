@@ -8,6 +8,7 @@ import requests
 from llmtalkie import LLMTalkie, LLMStep, LLMConfig
 from wikidig_utils import wikimedia2md
 
+# This is a demo app for llmtalkie.
 # We'll scrape Wikipedia in search of political leaders,
 # but we'll start from scratch, the "History" page. This is of course
 # inefficient, but it will work as a demo. The efficient approach would be
