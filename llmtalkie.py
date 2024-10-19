@@ -59,16 +59,21 @@ class LLMStep:
                  llm_config: LLMConfig,
                  role: str = "user",
                  input_callback: Callable[["LLMStep"], dict] = None,
+                 validation_callback: Callable[["LLMStep"], bool] = None,
                  result_callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  json_response: bool = True,
                  include_history: bool = False,
                  input_data: dict[str, Any] = None,
-                 prompt: str):
+                 prompt: str,
+                 trim_prompt: bool = False,
+                 ):
         self.llm_config = llm_config
         self.role = role
         self.prompt = prompt
+        self.trim_prompt = trim_prompt
         self.input_callback = input_callback
+        self.validation_callback = validation_callback
         self.result_callback = result_callback
         self.previous_step = previous_step
         self.json_response = json_response
@@ -79,12 +84,12 @@ class LLMStep:
         self.has_response: bool = False
         self.raw_response: str = None # Raw response from the LLM
         self.response: dict = None # Response as dict, parsed from raw_response. If json_response is false, set to {"response": raw_response}
-        self.result: dict = None # Whatever the callback returns. If callback is None, set to {"response": raw_response}
+        self.result: dict = None # Whatever the callback returns. If callback is None, set to {"response": response}
 
 
 class LLMTalkie:
     """
-    An agent system for talking to LLMs.
+    A LLM pipeline orchestrator.
     """
 
     def __init__(self, *, llm_config: LLMConfig = None, llm_retry: int = 5):
@@ -96,34 +101,49 @@ class LLMTalkie:
     def new_step(self, *,
                  llm_config: LLMConfig = None,
                  result_callback: Callable[["LLMStep"], dict] = None,
+                 validation_callback: Callable[["LLMStep"], bool] = None,
                  input_callback: Callable[["LLMStep"], dict] = None,
                  previous_step: LLMStep = None,
                  include_history: bool = True,
                  json_response: bool = True,
                  input_data: dict[str, Any] = None,
-                 prompt: str) -> LLMStep:
+                 prompt: str,
+                 trim_prompt: bool = False) -> LLMStep:
         if llm_config is None:
             llm_config = self.llm_config
         if input_data is None:
             input_data = {}
         return LLMStep(llm_config = llm_config,
-                       result_callback = result_callback,
                        input_callback = input_callback,
+                       validation_callback = validation_callback,
+                       result_callback = result_callback,
                        previous_step = previous_step,
                        include_history = include_history,
                        json_response = json_response,
                        input_data = input_data,
-                       prompt = prompt)
+                       prompt = prompt,
+                       trim_prompt = trim_prompt)
 
 
-    def _count_messages_words(self, messages: str) -> int:
+    def _count_messages_words(self, messages: list[dict]) -> int:
         count = 0
         for m in messages:
             count += m['content'].count(' ')
         return count
 
 
+    def _trim_last_message(self, messages: list[dict], max_words: int):
+        prev_messages_len = self._count_messages_words(messages[0:-1])
+        message = messages[-1]
+        while prev_messages_len + message['content'].count(' ') > max_words:
+            p = message['content'].rfind(' ')
+            if p == -1:
+                break
+            message['content'] = message['content'][0:p]
+
+
     def execute_steps(self, steps: list[LLMStep]):
+        log.debug(f"Executing {len(steps)} steps.")
 
         def _mk_empty_messages(step: LLMStep):
             if step.llm_config.system_message:
@@ -167,10 +187,14 @@ class LLMTalkie:
                 "content": content,
             })
 
-            print(f"**** Messages approx word count: {self._count_messages_words(messages)}")
+            messages_word_count = self._count_messages_words(messages)
+            log.info(f"*** Messages approx word count: {messages_word_count}")
+            if messages_word_count > step.llm_config.options["num_ctx"] and step.trim_prompt:
+                self._trim_last_message(messages, int(step.llm_config.options["num_ctx"] * 0.6))
+                messages_word_count = self._count_messages_words(messages)
+                log.info(f"*** Trimmed to word count: {messages_word_count}")
 
-            raw_response: str = None
-            response: str|dict = None
+            step.raw_response = None
 
             if step.json_response:
                 for retry in range(self.llm_retry):
@@ -191,18 +215,26 @@ class LLMTalkie:
                     assert result["model"] == step.llm_config.model_name
                     assert result["done"]
                     assert result["message"]["role"] == "assistant"
-                    raw_response = result["message"]["content"]
-                    if raw_response.find("```") != -1:
-                        raw_response = RE_MD_JSON.sub(r"\1", raw_response)
+                    step.raw_response = self.response = result["message"]["content"]
+                    if step.raw_response.find("```") != -1:
+                        step.raw_response = RE_MD_JSON.sub(r"\1", step.raw_response)
                     try:
-                        response = json.loads(raw_response)
-                        break
+                        step.response = json.loads(step.raw_response)
+                        if step.validation_callback:
+                            if step.validation_callback(step):
+                                break
+                            else:
+                                log.warning(f"Validation failure. Attempt #{retry}/{self.llm_retry}")
+                                continue
+                        else:
+                            break
                     except json.JSONDecodeError as e:
-                        log.error(f"Error parsing LLM response: {e} ({result['message']['content']}). Try #{retry}/{self.llm_retry}")
+                        log.error(f"Error parsing LLM response: {e} ({result['message']['content']}). Attemp #{retry}/{self.llm_retry}")
                         continue
 
-                if raw_response is None:
+                if step.raw_response is None:
                     raise LLMTalkieException("Retry limit reached, LLM did not produce valid JSON")
+
             else:
                 # No need to retry prose writing.
                 r = requests.post(
@@ -222,13 +254,11 @@ class LLMTalkie:
                 assert result["model"] == step.llm_config.model_name
                 assert result["done"]
                 assert result["message"]["role"] == "assistant"
-                raw_response = result["message"]["content"]
-                response = {"response": raw_response}
+                step.raw_response = result["message"]["content"]
+                self.response = self.result = {"response": step.raw_response}
 
-            step.raw_response = raw_response
-            step.response = response
             step.has_response = True
             if step.result_callback:
                 step.result = step.result_callback(step)
             else:
-                step.result = None
+                step.result = {"response": step.raw_response}
