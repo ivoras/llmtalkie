@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from collections import deque
+import json
 import logging
 import re
 import sys
@@ -47,7 +49,7 @@ LLM_LOCAL_QWEN25_14B = LLMConfig(
     system_message = "You are a helpful research assistent, analyzing topics in Wikipedia articles according to the instructions. You output only JSON documents and nothing else. Do not output explanations or comments. Stop after outputting JSON.",
     temperature = 0.2,
     options = {
-        "num_ctx": 4096,
+        "num_ctx": 6144,
         "num_predict": -2,
     }
 )
@@ -62,11 +64,14 @@ def get_page_text(title: str) -> str:
     url = f"https://en.wikipedia.org/w/index.php?action=raw&title={title}"
     r = requests.get(url)
     sleep(0.1) # take it easy on Wikipedia
-    return wikimedia2md(r.text)
+    text = wikimedia2md(r.text)
+    text = text.replace("'''", "")
+    text = text.replace("''", "")
+    return text
 
 
 def main():
-    pages_queue = []
+    pages_queue = deque()
     pages_queue.append("History") # Starting page
     seen_pages: set[str] = set(["history"])
 
@@ -79,7 +84,8 @@ def main():
         if type(step.response) != dict:
             print(type(step.response))
             print(step.response)
-        assert type(step.response) == dict
+        if not step.response:
+            return
         for page in step.response["pages"]:
             if page.lower() in seen_pages:
                 continue
@@ -91,10 +97,13 @@ def main():
         if type(step.response) != dict:
             print(type(step.response))
             print(step.response)
-        assert type(step.response) == dict
+        if not step.response:
+            return {"people": "None", "people_descriptions": []}
         people_sections = []
         people_descriptions = {}
         for name in step.response["people"]:
+            if name in people_descriptions:
+                continue
             text = get_page_text(name)
 
             while text.find("#REDIRECT") != -1:
@@ -118,7 +127,8 @@ def main():
         if type(step.response) != dict:
             print(type(step.response))
             print(step.response)
-        assert type(step.response) == dict
+        if not step.response:
+            return
         if not 'people' in step.response:
             print("ERROR: no people in:", step.response)
             return
@@ -132,7 +142,7 @@ def main():
                     print(f"Can't find person {name} in previous_step inputs: {step.previous_step.input_data}")
 
     while len(pages_queue) > 0 and count_pages < 50: # Process up to 50 pages
-        page_title = pages_queue.pop()
+        page_title = pages_queue.popleft()
         print("Processing page:", page_title)
         text = get_page_text(page_title)
 
@@ -142,13 +152,15 @@ def main():
             input_data={"text": text},
             trim_prompt=True,
             prompt="""
-The Wikipedia text in the section titled "Text" has links to other pages formatted as "[Page title]".
-Please extract page titles that indicate they are involved in some kind of political or social movement.
-Please output data formatted as JSON like in this example:
+You are given a text from a Wikipedia article in the section titled "Text" and it has links to other pages formatted as "[Page title]".
+Please find page titles about political events or social movements.
+Please write the data formatted as a JSON document like in this example:
 
 {
     "pages": [ "Page title", "Another page title" ]
 }
+
+If not sure, make the "pages" list empty.
 
 # Text
 
@@ -164,12 +176,14 @@ $text
             input_data={"text": text},
             trim_prompt=True,
             prompt="""
-List up to 30 people names appearing in section tited "Text", who might be involved in politics or social movements.
-If not sure, output an empty list. Please output data formatted as JSON like in this example:
+List up to 30 people names appearing in section titled "Text", who might be involved in politics or social movements.
+Please write the data formatted as a JSON document like in this example:
 
 {
     "people": [ "John Doe", "Person Name" ]
 }
+
+If not sure, make the "people" list empty.
 
 # Text
 
@@ -190,7 +204,7 @@ $text
 Your task is to analyze the following sections containing texts about people. Each section is
 titled with a person's name. Analyze all the available sections and for each person,
 output YES or NO, depending of if the text for the person indicates they were
-either a political leader, social leader, or a revolutionary.
+either a political leader, social movement leader, or a revolutionary.
 
 Please output the data formatted as JSON like in this example, without any commentary or explanations:
 
@@ -214,8 +228,9 @@ $people
         #pprint.pp(step1.result, width=120)
         #pprint.pp(step2.result, width=120)
         #pprint.pp(step3.result, width=120)
+        print("Pages to process:", pages_queue)
 
-    pprint.pp(result, width=120)
+    print(json.dumps(result, indent=2))
 
 if __name__ == '__main__':
     main()

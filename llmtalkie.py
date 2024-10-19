@@ -189,10 +189,10 @@ class LLMTalkie:
 
             messages_word_count = self._count_messages_words(messages)
             log.info(f"*** Messages approx word count: {messages_word_count}")
-            if messages_word_count > step.llm_config.options["num_ctx"] and step.trim_prompt:
-                self._trim_last_message(messages, int(step.llm_config.options["num_ctx"] * 0.6))
+            if messages_word_count > int(step.llm_config.options["num_ctx"] * 0.5) and step.trim_prompt:
+                self._trim_last_message(messages, int(step.llm_config.options["num_ctx"] * 0.5))
                 messages_word_count = self._count_messages_words(messages)
-                log.info(f"*** Trimmed to word count: {messages_word_count}")
+                log.info(f"    Trimmed to word count: {messages_word_count}")
 
             step.raw_response = None
 
@@ -213,7 +213,9 @@ class LLMTalkie:
                         log.error(result)
                         break
                     assert result["model"] == step.llm_config.model_name
-                    assert result["done"]
+                    if not 'done' in result or not result['done']:
+                        log.error(f"No 'done' field in returned result: {result}")
+                        continue
                     assert result["message"]["role"] == "assistant"
                     step.raw_response = self.response = result["message"]["content"]
                     if step.raw_response.find("```") != -1:
@@ -224,7 +226,7 @@ class LLMTalkie:
                             if step.validation_callback(step):
                                 break
                             else:
-                                log.warning(f"Validation failure. Attempt #{retry}/{self.llm_retry}")
+                                log.warning(f"Validation failure. Attempt #{retry}/{self.llm_retry} (response: {step.response})")
                                 continue
                         else:
                             break
