@@ -1,4 +1,4 @@
-# llmtalkie
+# llmtalkie - LLM orchestration
 
 A micro LLM agent system for data analysis (or synthesis) pipelines.
 
