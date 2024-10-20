@@ -48,7 +48,7 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
 )
 
     print(LLMMap(LLM_LOCAL_LLAMA32, """
-Please study the following list of words carefully, and for each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
+Please study the following list of words carefully. For each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
 
 $LIST
 """.lstrip(), ["eenie", "meenie", "miney", "moe"]))
