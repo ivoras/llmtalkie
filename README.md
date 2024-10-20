@@ -35,7 +35,7 @@ For example (as in the [wikidig](test_wikidig.py) demo script), a small LLM coul
 
 # The prompt map function
 
-The `LLMMap` function operates on a list of data, processing each element with a LLM. Instead of building item separately into the prompt, it batches input data into chunks and passes it to a LLM as a chunk, increasing efficiency. See [test_llmupper](test_llmupper.py) for working code, but the core functionality is:
+The `LLMMap` function operates on a list of data, processing each element with a LLM. Instead of inserting each item separately into the prompt, it batches input data into chunks and passes it to a LLM as a list, increasing efficiency. See [test_llmupper](test_llmupper.py) for working code, but the core functionality is:
 
 ```
 LLM_LOCAL_LLAMA32 = LLMConfig(
@@ -57,6 +57,6 @@ $LIST
 """.lstrip(), ["eenie", "meenie", "miney", "moe"]))
 ```
 
-The result of the `LLMMap()` call will be a list of words in uppercase.
+The result of the `LLMMap()` call will be a list of words (i.e. `"eenie", "meenie", "miney", "moe"`) in uppercase.
 
 In my experience, LLM's are about as good at uppercasing words as they are in doing math.
