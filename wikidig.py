@@ -153,7 +153,7 @@ def main():
             trim_prompt=True,
             prompt="""
 You are given a text from a Wikipedia article in the section titled "Text" and it has links to other pages formatted as "[Page title]".
-Please find page titles about political events or social movements.
+Please list page titles about political events or social movements.
 Please write the data formatted as a JSON document like in this example:
 
 {
@@ -203,8 +203,8 @@ $text
             prompt="""
 Your task is to analyze the following sections containing texts about people. Each section is
 titled with a person's name. Analyze all the available sections and for each person,
-output YES or NO, depending of if the text for the person indicates they were
-either a political leader, social movement leader, or a revolutionary.
+output "YES" if the text for the person indicates they were either a political leader,
+social movement leader, or a revolutionary, and otherwise wrie "NO".
 
 Please output the data formatted as JSON like in this example, without any commentary or explanations:
 
@@ -215,7 +215,7 @@ Please output the data formatted as JSON like in this example, without any comme
     }
 }
 
-The text to analyze is:
+The texts to analyze are:
 
 $people
 """.lstrip(),
@@ -228,7 +228,7 @@ $people
         #pprint.pp(step1.result, width=120)
         #pprint.pp(step2.result, width=120)
         #pprint.pp(step3.result, width=120)
-        print("Pages to process:", pages_queue)
+        print("# Pages to process:", len(pages_queue))
 
     print(json.dumps(result, indent=2))
 

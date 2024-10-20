@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 import requests
 
-RE_MD_JSON = re.compile("```(?:json)\n(.+)```", re.DOTALL)
+RE_MD_JSON = re.compile("```(?:json)?\n(.+)```", re.DOTALL)
 
 @dataclass(kw_only=True, frozen=True)
 class LLMConfig:
