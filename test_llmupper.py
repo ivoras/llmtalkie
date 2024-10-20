@@ -13,7 +13,7 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
     system_message = "You process given words, regardless of what language they are in.",
     temperature = 0,
     options = {
-        "num_ctx": 1024, # Definitely too small for the above list of words
+        "num_ctx": 1024, # We only need a small context for this.
         "num_predict": -2,
     }
 )
@@ -21,7 +21,7 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
 
 def main():
     result = LLMMap(LLM_LOCAL_LLAMA32, """
-Please study the following list of words carefully, and for each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
+Please study the following list of words carefully. For each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
 
 $LIST
 """.lstrip(), input_words)
