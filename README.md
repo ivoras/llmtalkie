@@ -29,7 +29,7 @@ The reasons for using different LLMs could be:
 - A smaller LLM could have a larger context than a bigger one, and can process larger chunks of data
 - A bigger LLM could provide deeper insight because of expanded world knowlege, but applied to a distilled chunk of data.
 
-For example (as in the [wikidig](wikidig.py) demo script), a small LLM does simpler pre-processing and passes the results to a larger LLM to draw conclusions on.
+For example (as in the [wikidig](wikidig.py) demo script), a small LLM could fo simpler pre-processing and pass the results to a larger LLM to draw conclusions on.
 
 # The prompt map function
 
