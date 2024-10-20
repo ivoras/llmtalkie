@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import logging
 import json
@@ -46,6 +47,30 @@ class LLMTalkieException(Exception): pass
 # step3 =
 
 log = logging.getLogger("llmtalkie")
+
+
+def _count_words(llm_config: LLMConfig, text: str) -> int:
+    # TODO: use proper token counts when OLLama implements the API.
+    return text.count(" ")
+
+
+def _count_messages_tokens(llm_config: LLMConfig, messages: list[dict]) -> int:
+    # TODO: use proper token counts when OLLama implements the API.
+    count = 0
+    for m in messages:
+        count += m['content'].count(' ')
+    return count
+
+
+def _trim_last_message(llm_config: LLMConfig, messages: list[dict], max_words: int):
+    prev_messages_len = _count_messages_tokens(llm_config, messages[0:-1])
+    message = messages[-1]
+    while prev_messages_len + message['content'].count(' ') > max_words:
+        p = message['content'].rfind(' ')
+        if p == -1:
+            break
+        message['content'] = message['content'][0:p]
+
 
 class LLMStep:
     """
@@ -125,23 +150,6 @@ class LLMTalkie:
                        trim_prompt = trim_prompt)
 
 
-    def _count_messages_words(self, messages: list[dict]) -> int:
-        count = 0
-        for m in messages:
-            count += m['content'].count(' ')
-        return count
-
-
-    def _trim_last_message(self, messages: list[dict], max_words: int):
-        prev_messages_len = self._count_messages_words(messages[0:-1])
-        message = messages[-1]
-        while prev_messages_len + message['content'].count(' ') > max_words:
-            p = message['content'].rfind(' ')
-            if p == -1:
-                break
-            message['content'] = message['content'][0:p]
-
-
     def execute_steps(self, steps: list[LLMStep]):
         log.debug(f"Executing {len(steps)} steps.")
 
@@ -187,11 +195,11 @@ class LLMTalkie:
                 "content": content,
             })
 
-            messages_word_count = self._count_messages_words(messages)
+            messages_word_count = _count_messages_tokens(step.llm_config, messages)
             log.info(f"*** Messages approx word count: {messages_word_count}")
-            if messages_word_count > int(step.llm_config.options["num_ctx"] * 0.5) and step.trim_prompt:
-                self._trim_last_message(messages, int(step.llm_config.options["num_ctx"] * 0.5))
-                messages_word_count = self._count_messages_words(messages)
+            if int(messages_word_count * 1.5) > step.llm_config.options["num_ctx"] and step.trim_prompt:
+                _trim_last_message(step.llm_config, messages, int(step.llm_config.options["num_ctx"] / 1.5))
+                messages_word_count = _count_messages_tokens(step.llm_config, messages)
                 log.info(f"    Trimmed to word count: {messages_word_count}")
 
             step.raw_response = None
@@ -264,3 +272,98 @@ class LLMTalkie:
                 step.result = step.result_callback(step)
             else:
                 step.result = {"response": step.raw_response}
+
+
+def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
+    """
+    LMMMap applies a LLM configuration and a prompt to a dict or other iterable types,
+    in an efficient way. It will try to cram as many items into the prompt as possible,
+    with regards to the LLM's num_ctx.
+
+    The prompt must be constructed in a special way, so it can contain multiple items
+    in a bulleted list, and with proper instructions so that the LLM can process this
+    list, and output a bulleted list (with "*" bullets) as a response.
+
+    The prompt must contain a special token $LIST where the list will be inserted.
+
+    The result is a dict or a list, containing the LLM's results over the items.
+    """
+
+    tpl = Template(prompt)
+
+    results = []
+
+    def llm_process(prompt: str) -> list[str]:
+        messages = [
+            {
+                "role": "system",
+                "content": "Output just a bulleted list of results according to the instructions, without explanations or commentary."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        for retry in range(5):
+            try:
+                r = requests.post(
+                    llm_config.url,
+                    json={
+                        "model": llm_config.model_name,
+                        "options": llm_config.options,
+                        "stream": False,
+                        "keep_alive": "30m",
+                        "messages": messages,
+                    }
+                )
+                result = r.json()
+                assert result["model"] == llm_config.model_name
+                assert result["done"]
+                assert result["message"]["role"] == "assistant"
+                raw_response: str = result["message"]["content"]
+                if raw_response.find("```") != -1:
+                    raw_response = RE_MD_JSON.sub(r"\1", raw_response)
+                response = json.loads(raw_response)
+            except json.JSONDecodeError:
+                log.error(f"LLM didn't return valid JSON: {raw_response}")
+                continue
+            if type(response) != list:
+                log.error(f"JSON Response to the prompt isn't a list: {raw_response}")
+                continue
+            break
+        return response
+
+    if type(data) is dict:
+        pass
+    elif type(data) is list:
+        batch_inputs = []
+
+        for item in data:
+            list_item = f"* {item}"
+            batch_prompt = tpl.substitute({"LIST": ("\n".join(batch_inputs + [list_item]))})
+            if _count_words(llm_config, batch_prompt) * 2 > llm_config.options['num_ctx'] or len(batch_inputs) >= 50:
+                print(f"Passing {len(batch_inputs)} items, {batch_prompt.count(' ')} words to LLM")
+                while True:
+                    batch_inputs.sort()
+                    batch_results = llm_process(tpl.substitute({"LIST": "\n".join(batch_inputs)}))
+                    if len(batch_results) == len(batch_inputs):
+                        break
+                    log.error(f"batch_inputs={len(batch_inputs)}, batch_results={len(batch_results)}")
+                    print(batch_inputs, "->", batch_results)
+                results.extend(batch_results)
+                batch_inputs = [list_item]
+            else:
+                batch_inputs.append(list_item)
+
+        if len(batch_inputs) > 0:
+            while True:
+                batch_results = llm_process(tpl.substitute({"LIST": "\n".join(batch_inputs)}))
+                if len(batch_results) == len(batch_inputs):
+                    break
+                log.error(f"batch_inputs={len(batch_inputs)}, batch_results={len(batch_results)}")
+                print(batch_inputs, "->", batch_results)
+            results.extend(batch_results)
+    else:
+        raise TypeError(f"Expecting a Mapping or Iterable type: {type(data)}")
+
+    return results
