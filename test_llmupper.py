@@ -21,7 +21,8 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
 
 def main():
     result = LLMMap(LLM_LOCAL_LLAMA32, """
-Please study the following list of words carefully. For each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
+Please study the following list of words carefully.
+For each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
 
 $LIST
 """.lstrip(), input_words)
@@ -36,7 +37,7 @@ $LIST
             print(f"ERROR: {input_word} -> {output_word} (should be {input_word.upper()})")
             error_count += 1
 
-    print(f"{error_count} errors")
+    print(f"{error_count} errors ({(error_count / len(input_words))*100:.1f} %)")
 
 if __name__ == '__main__':
     main()
