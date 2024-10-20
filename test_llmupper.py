@@ -10,7 +10,7 @@ input_words = ["emanation's", "hilltop", "analgesia", "Carpentaria", "preshrunke
 LLM_LOCAL_LLAMA32 = LLMConfig(
     url = "http://localhost:11434/api/chat",
     model_name = "llama3.2",
-    system_message = "You are a dictionary of words.", # or whatever
+    system_message = "You process given words, regardless of what language they are in.",
     temperature = 0,
     options = {
         "num_ctx": 1024, # Definitely too small for the above list of words
@@ -21,15 +21,22 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
 
 def main():
     result = LLMMap(LLM_LOCAL_LLAMA32, """
-Please study the following list of words carefully, and for each word in the list, convert the word to uppoercase and output it in a JSON list.
+Please study the following list of words carefully, and for each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
 
 $LIST
 """.lstrip(), input_words)
 
     assert len(result) == len(input_words)
-    print(result)
-    print(len(result))
+    error_count = 0
 
+    for i in range(len(input_words)):
+        input_word = input_words[i]
+        output_word = result[i]
+        if input_word.upper() != output_word:
+            print(f"ERROR: {input_word} -> {output_word} (should be {input_word.upper()})")
+            error_count += 1
+
+    print(f"{error_count} errors")
 
 if __name__ == '__main__':
     main()

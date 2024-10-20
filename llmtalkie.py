@@ -323,7 +323,7 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
                 raw_response: str = result["message"]["content"]
                 if raw_response.find("```") != -1:
                     raw_response = RE_MD_JSON.sub(r"\1", raw_response)
-                response = json.loads(raw_response)
+                response: list[str] = json.loads(raw_response)
             except json.JSONDecodeError:
                 log.error(f"LLM didn't return valid JSON: {raw_response}")
                 continue
@@ -331,7 +331,7 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
                 log.error(f"JSON Response to the prompt isn't a list: {raw_response}")
                 continue
             break
-        return response
+        return [x.strip() for x in response]
 
     if type(data) is dict:
         pass
@@ -342,14 +342,13 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
             list_item = f"* {item}"
             batch_prompt = tpl.substitute({"LIST": ("\n".join(batch_inputs + [list_item]))})
             if _count_words(llm_config, batch_prompt) * 2 > llm_config.options['num_ctx'] or len(batch_inputs) >= 50:
-                print(f"Passing {len(batch_inputs)} items, {batch_prompt.count(' ')} words to LLM")
+                log.debug(f"Passing {len(batch_inputs)} items, {batch_prompt.count(' ')} words to LLM")
                 while True:
-                    batch_inputs.sort()
                     batch_results = llm_process(tpl.substitute({"LIST": "\n".join(batch_inputs)}))
                     if len(batch_results) == len(batch_inputs):
                         break
                     log.error(f"batch_inputs={len(batch_inputs)}, batch_results={len(batch_results)}")
-                    print(batch_inputs, "->", batch_results)
+                    #print(batch_inputs, "->", batch_results)
                 results.extend(batch_results)
                 batch_inputs = [list_item]
             else:
@@ -361,7 +360,7 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
                 if len(batch_results) == len(batch_inputs):
                     break
                 log.error(f"batch_inputs={len(batch_inputs)}, batch_results={len(batch_results)}")
-                print(batch_inputs, "->", batch_results)
+                #print(batch_inputs, "->", batch_results)
             results.extend(batch_results)
     else:
         raise TypeError(f"Expecting a Mapping or Iterable type: {type(data)}")
