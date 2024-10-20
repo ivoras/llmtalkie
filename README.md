@@ -1,6 +1,6 @@
 # llmtalkie - LLM orchestration
 
-A micro LLM agent system for data analysis (or synthesis) pipelines. Currently for OLlama only.
+A micro LLM agent system for data analysis (or synthesis) pipelines. Currently for Ollama only.
 
 The LLMTalkie project currently provides two features:
 
@@ -33,4 +33,27 @@ For example (as in the [wikidig](wikidig.py) demo script), a small LLM could fo 
 
 # The prompt map function
 
-The `LLMMap` function operates on a list of data, processing each element with a LLM. Instead of building item separately into the prompt, it batches input data into chunks and passes it to a LLM as a chunk, increasing efficiency. See the [test_llmupper](test_llmupper.py) example.
+The `LLMMap` function operates on a list of data, processing each element with a LLM. Instead of building item separately into the prompt, it batches input data into chunks and passes it to a LLM as a chunk, increasing efficiency. See [test_llmupper](test_llmupper.py) for working code, but the core functionality is:
+
+```
+LLM_LOCAL_LLAMA32 = LLMConfig(
+    url = "http://localhost:11434/api/chat",
+    model_name = "llama3.2",
+    system_message = "You process given words, regardless of what language they are in.",
+    temperature = 0,
+    options = {
+        "num_ctx": 1024, # We only need a small context for this.
+        "num_predict": -2,
+    }
+)
+
+    print(LLMMap(LLM_LOCAL_LLAMA32, """
+Please study the following list of words carefully, and for each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
+
+$LIST
+""".lstrip(), ["eenie", "meenie", "miney", "moe"]))
+```
+
+The result of the `LLMMap()` call will be a list of words in uppercase.
+
+In my experience, LLM's are about as good at uppercasing words as they are in doing math.
