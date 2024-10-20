@@ -78,7 +78,6 @@ def main():
     result = {} # e.g. { "Person Name": "What they did" }
 
     talkie = LLMTalkie()
-    count_pages = 0
 
     def update_pages_queue(step: LLMStep):
         if type(step.response) != dict:
@@ -117,7 +116,9 @@ def main():
             if text.find("Wikimedia Error") != -1:
                 continue
 
-            text = text[0:text.find("\n#")] # get the first section of the Wikipedia page, the one with the description
+            text: str = text[0:text.find("\n#")] # get the first section of the Wikipedia page, the one with the description
+            text = text.replace("[", "")
+            text = text.replace("]", "")
             people_sections.append(f"# {name}\n\n{text}\n")
             people_descriptions[name] = text
 
@@ -141,7 +142,7 @@ def main():
                 except KeyError:
                     print(f"Can't find person {name} in previous_step inputs: {step.previous_step.input_data}")
 
-    while len(pages_queue) > 0 and count_pages < 50: # Process up to 50 pages
+    while len(pages_queue) > 0 and len(result) < 50: # Find 50 people
         page_title = pages_queue.popleft()
         print("Processing page:", page_title)
         text = get_page_text(page_title)
