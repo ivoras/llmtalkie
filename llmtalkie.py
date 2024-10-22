@@ -282,28 +282,38 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
 
     The prompt must be constructed in a special way, so it can contain multiple items
     in a bulleted list, and with proper instructions so that the LLM can process this
-    list, and output a bulleted list (with "*" bullets) as a response.
+    list, and output a JSON list as a response. For best results, both the prompt and
+    the llm_config.system_message should contain instructions to output a JSON document.
 
     The prompt must contain a special token $LIST where the list will be inserted.
 
     The result is a dict or a list, containing the LLM's results over the items.
+
     """
 
     tpl = Template(prompt)
 
     results = []
+    batch_number = 0
+
+    f = open('_prompt.json', 'wt')
 
     def llm_process(prompt: str) -> list[str]:
+        response = None
+
         messages = [
             {
                 "role": "system",
-                "content": "Output just a bulleted list of results according to the instructions, without explanations or commentary."
+                "content": llm_config.system_message,
             },
             {
                 "role": "user",
                 "content": prompt
             }
         ]
+        f.write(json.dumps(messages, indent=2))
+        f.write("\n\n")
+        f.flush()
         for retry in range(5):
             try:
                 r = requests.post(
@@ -325,41 +335,48 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
                     raw_response = RE_MD_JSON.sub(r"\1", raw_response)
                 response: list[str] = json.loads(raw_response)
             except json.JSONDecodeError:
-                log.error(f"LLM didn't return valid JSON: {raw_response}")
+                log.error(f"(batch {batch_number}) LLM didn't return valid JSON: {raw_response}. Retry #{retry}")
                 continue
             if type(response) != list:
-                log.error(f"JSON Response to the prompt isn't a list: {raw_response}")
+                log.error(f"(batch {batch_number}) JSON response to the prompt isn't a list: {raw_response}. Retry #{retry}")
                 continue
             break
+        if response is None:
+            raise LLMTalkieException(f"(batch {batch_number}) LLM didn't return a valid output even with {retry} retries")
+        for x in response:
+            if type(x) != str:
+                log.error(f"(batch {batch_number}) JSON response is weird: {raw_response}")
         return [x.strip() for x in response]
 
     if type(data) is dict:
-        pass
+        raise Exception("dicts are not supported yet")
     elif type(data) is list:
         batch_inputs = []
 
         for item in data:
-            list_item = f"* {item}"
-            batch_prompt = tpl.substitute({"LIST": ("\n".join(batch_inputs + [list_item]))})
+            list_item = json.dumps(item)
+            batch_prompt = tpl.substitute({"LIST": (",\n".join(batch_inputs + [list_item]))})
             if _count_words(llm_config, batch_prompt) * 2 > llm_config.options['num_ctx'] or len(batch_inputs) >= 50:
                 log.debug(f"Passing {len(batch_inputs)} items, {batch_prompt.count(' ')} words to LLM")
+                batch_number += 1
                 while True:
                     batch_results = llm_process(tpl.substitute({"LIST": "\n".join(batch_inputs)}))
                     if len(batch_results) == len(batch_inputs):
                         break
-                    log.error(f"batch_inputs={len(batch_inputs)}, batch_results={len(batch_results)}")
-                    #print(batch_inputs, "->", batch_results)
+                    log.error(f"(batch {batch_number}) LLM didn't return all the required items. len(batch_inputs)={len(batch_inputs)}, len(batch_results)={len(batch_results)}. Retrying.")
+                    print(batch_inputs, "->", batch_results)
                 results.extend(batch_results)
                 batch_inputs = [list_item]
             else:
                 batch_inputs.append(list_item)
 
         if len(batch_inputs) > 0:
+            batch_number += 1
             while True:
                 batch_results = llm_process(tpl.substitute({"LIST": "\n".join(batch_inputs)}))
                 if len(batch_results) == len(batch_inputs):
                     break
-                log.error(f"batch_inputs={len(batch_inputs)}, batch_results={len(batch_results)}")
+                log.error(f"(batch {batch_number}) LLM didn't return all the required items. len(batch_inputs)={len(batch_inputs)}, len(batch_results)={len(batch_results)}. Retrying.")
                 #print(batch_inputs, "->", batch_results)
             results.extend(batch_results)
     else:

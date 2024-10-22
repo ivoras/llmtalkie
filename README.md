@@ -41,7 +41,7 @@ The `LLMMap` function operates on a list of data, processing each element with a
 LLM_LOCAL_LLAMA32 = LLMConfig(
     url = "http://localhost:11434/api/chat",
     model_name = "llama3.2",
-    system_message = "You process given words, regardless of what language they are in.",
+    system_message = "You process word lists, regardless of what language they are in. Output just a JSON list of results according to the instructions, without explanations or commentary.",
     temperature = 0,
     options = {
         "num_ctx": 1024, # We only need a small context for this.
@@ -50,8 +50,20 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
 )
 
     print(LLMMap(LLM_LOCAL_LLAMA32, """
-Please study the following list of words carefully.
+Please study the list of words in the section called "Words".
 For each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
+
+Example input:
+
+* eenie
+* meanie
+* Wii
+
+Example output:
+
+[ "EENIE", "MEANIE", "WII" ]
+
+# Words
 
 $LIST
 """.lstrip(), ["eenie", "meenie", "miney", "moe"]))

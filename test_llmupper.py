@@ -10,7 +10,7 @@ input_words = ["emanation's", "hilltop", "analgesia", "Carpentaria", "preshrunke
 LLM_LOCAL_LLAMA32 = LLMConfig(
     url = "http://localhost:11434/api/chat",
     model_name = "llama3.2",
-    system_message = "You process given words, regardless of what language they are in.",
+    system_message = """Follow the instructions, and write down the result as valid JSON array without explanations or commentary. Begin with "[" and end with "]".""",
     temperature = 0,
     options = {
         "num_ctx": 1024, # We only need a small context for this.
@@ -21,10 +21,21 @@ LLM_LOCAL_LLAMA32 = LLMConfig(
 
 def main():
     result = LLMMap(LLM_LOCAL_LLAMA32, """
-Please study the following list of words carefully.
-For each word in the list, convert the word to uppercase and output it in a JSON list in order of appearance.
+You are a student learning how to convert words to uppercase. Study the JSON list of strings in the section named "Strings" carefully.
+For each string in the list, convert the string to uppercase by uppercasing each character in the string individually. Output the resulting strings where every character is in uppercase in a JSON array in order of appearance.
 
-$LIST
+Example input:
+
+[ "eenie", "meanie", "Mc'Hilltop", "Conglutinates", "goldener" ]
+
+Example output:
+
+[ "EENIE", "MEANIE", "MC'HILLTOP", "CONGLUTINATES", "GOLDENER" ]
+
+# Strings
+
+[ $LIST ]
+
 """.lstrip(), input_words)
 
     assert len(result) == len(input_words)
