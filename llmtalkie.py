@@ -281,7 +281,7 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
     with regards to the LLM's num_ctx.
 
     The prompt must be constructed in a special way, so it can contain multiple items
-    in a bulleted list, and with proper instructions so that the LLM can process this
+    in a JSON list, and with proper instructions so that the LLM can process this
     list, and output a JSON list as a response. For best results, both the prompt and
     the llm_config.system_message should contain instructions to output a JSON document.
 
