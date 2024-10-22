@@ -265,7 +265,7 @@ class LLMTalkie:
                 assert result["done"]
                 assert result["message"]["role"] == "assistant"
                 step.raw_response = result["message"]["content"]
-                self.response = self.result = {"response": step.raw_response}
+                step.response = step.result = {"response": step.raw_response}
 
             step.has_response = True
             if step.result_callback:
