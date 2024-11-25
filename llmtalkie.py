@@ -207,7 +207,7 @@ class LLMTalkie:
             if step.json_response:
                 for retry in range(self.llm_retry):
                     r = requests.post(
-                        self.llm_config.url,
+                        step.llm_config.url,
                         json={
                             "model": step.llm_config.model_name,
                             "options": step.llm_config.options,
@@ -216,7 +216,11 @@ class LLMTalkie:
                             "messages": messages,
                         }
                     )
-                    result = r.json()
+                    try:
+                        result = r.json()
+                    except requests.exceptions.JSONDecodeError:
+                        print(r.text)
+                        raise
                     if 'error' in result:
                         log.error(result)
                         break
@@ -244,11 +248,10 @@ class LLMTalkie:
 
                 if step.raw_response is None:
                     raise LLMTalkieException("Retry limit reached, LLM did not produce valid JSON")
-
             else:
                 # No need to retry prose writing.
                 r = requests.post(
-                    self.llm_config.url,
+                    step.llm_config.url,
                     json={
                         "model": step.llm_config.model_name,
                         "options": step.llm_config.options,
@@ -257,7 +260,11 @@ class LLMTalkie:
                         "messages": messages,
                     }
                 )
-                result = r.json()
+                try:
+                    result = r.json()
+                except requests.exceptions.JSONDecodeError:
+                    log.error(r.text)
+                    raise
                 if 'error' in result:
                     log.error(result)
                     break
