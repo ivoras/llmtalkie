@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+import pprint
+from dataclasses import dataclass, field
 import logging
 import json
 import re
@@ -12,18 +13,24 @@ import requests
 
 RE_MD_JSON = re.compile("```(?:json)?\n(.+)```", re.DOTALL)
 
+DEFAULT_NUM_CTX = 8192
+
 @dataclass(kw_only=True, frozen=True)
 class LLMConfig:
     url: str
     model_name: str
+    api_key: str = None
+    api_style: str = "openai"
     system_message: str
     temperature: float
-    options: dict[str,Any]
+    options: dict[str, Any] = field(default_factory=dict)
 
 
+# Example config
 LLM_LOCAL_LLAMA32 = LLMConfig(
     url = "http://localhost:11434/api/chat",
     model_name = "llama3.2",
+    api_style = "ollama",
     system_message = "You are a knowledgable assistant. You can answer questions and perform tasks.",
     temperature = 0.3,
     options = {
@@ -197,8 +204,8 @@ class LLMTalkie:
 
             messages_word_count = _count_messages_tokens(step.llm_config, messages)
             log.info(f"*** Messages approx word count: {messages_word_count}")
-            if int(messages_word_count * 1.5) > step.llm_config.options["num_ctx"] and step.trim_prompt:
-                _trim_last_message(step.llm_config, messages, int(step.llm_config.options["num_ctx"] / 1.5))
+            if int(messages_word_count * 1.5) > step.llm_config.options.get("num_ctx", DEFAULT_NUM_CTX) and step.trim_prompt:
+                _trim_last_message(step.llm_config, messages, int(step.llm_config.options.get("num_ctx", DEFAULT_NUM_CTX) / 1.5))
                 messages_word_count = _count_messages_tokens(step.llm_config, messages)
                 log.info(f"    Trimmed to word count: {messages_word_count}")
 
@@ -206,16 +213,33 @@ class LLMTalkie:
 
             if step.json_response:
                 for retry in range(self.llm_retry):
-                    r = requests.post(
-                        step.llm_config.url,
-                        json={
-                            "model": step.llm_config.model_name,
-                            "options": step.llm_config.options,
-                            "stream": False,
-                            "keep_alive": "30m",
-                            "messages": messages,
-                        }
-                    )
+                    if step.llm_config.api_style == "ollama":
+                        r = requests.post(
+                            step.llm_config.url,
+                            json={
+                                "model": step.llm_config.model_name,
+                                "options": step.llm_config.options,
+                                "stream": False,
+                                "keep_alive": "30m",
+                                "messages": messages,
+                                "format": "json",
+                            }
+                        )
+                    elif step.llm_config.api_style == "openai":
+                        r = requests.post(
+                            step.llm_config.url,
+                            headers={
+                                "Authorization": f"Bearer {step.llm_config.api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model": step.llm_config.model_name,
+                                "messages": messages,
+                                "response_format": { "type": "json_object" },
+                                "temperature": step.llm_config.temperature,
+                                "max_tokens": step.llm_config.options.get("num_ctx", DEFAULT_NUM_CTX),
+                            }
+                        )
                     try:
                         result = r.json()
                     except requests.exceptions.JSONDecodeError:
@@ -225,11 +249,17 @@ class LLMTalkie:
                         log.error(result)
                         break
                     assert result["model"] == step.llm_config.model_name
-                    if not 'done' in result or not result['done']:
+                    if step.llm_config.api_style == 'ollama' and (not 'done' in result or not result['done']):
                         log.error(f"No 'done' field in returned result: {result}")
                         continue
-                    assert result["message"]["role"] == "assistant"
-                    step.raw_response = self.response = result["message"]["content"]
+                    if step.llm_config.api_style == 'openai':
+                        message = result['choices'][0]['message']
+                    elif step.llm_config.api_style == 'ollama':
+                        message = result["message"]
+                    else:
+                        raise LLMTalkieException(f"Unknown API style: {step.llm_config.api_style}")
+                    assert message["role"] == "assistant"
+                    step.raw_response = self.response = message["content"]
                     if step.raw_response.find("```") != -1:
                         step.raw_response = RE_MD_JSON.sub(r"\1", step.raw_response)
                     try:
@@ -250,16 +280,32 @@ class LLMTalkie:
                     raise LLMTalkieException("Retry limit reached, LLM did not produce valid JSON")
             else:
                 # No need to retry prose writing.
-                r = requests.post(
-                    step.llm_config.url,
-                    json={
-                        "model": step.llm_config.model_name,
-                        "options": step.llm_config.options,
-                        "stream": False,
-                        "keep_alive": "30m",
-                        "messages": messages,
-                    }
-                )
+                if step.llm_config.api_style == "ollama":
+                    r = requests.post(
+                        step.llm_config.url,
+                        json={
+                            "model": step.llm_config.model_name,
+                            "options": step.llm_config.options,
+                            "stream": False,
+                            "keep_alive": "30m",
+                            "messages": messages,
+                        }
+                    )
+                elif step.llm_config.api_style == "openai":
+                    r = requests.post(
+                        step.llm_config.url,
+                        headers={
+                            "Authorization": f"Bearer {step.llm_config.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": step.llm_config.model_name,
+                            "messages": messages,
+                            "temperature": step.llm_config.temperature,
+                            "max_tokens": step.llm_config.options.get("num_ctx", DEFAULT_NUM_CTX),
+                        }
+                    )
+
                 try:
                     result = r.json()
                 except requests.exceptions.JSONDecodeError:
@@ -268,10 +314,19 @@ class LLMTalkie:
                 if 'error' in result:
                     log.error(result)
                     break
+
                 assert result["model"] == step.llm_config.model_name
-                assert result["done"]
-                assert result["message"]["role"] == "assistant"
-                step.raw_response = result["message"]["content"]
+
+                if step.llm_config.api_style == 'openai':
+                    message = result['choices'][0]['message']
+                elif step.llm_config.api_style == 'ollama':
+                    message = result["message"]
+                    assert result["done"]
+                else:
+                    raise LLMTalkieException(f"Unknown API style: {step.llm_config.api_style}")
+
+                assert message["role"] == "assistant"
+                step.raw_response = message["content"]
                 step.response = step.result = {"response": step.raw_response}
 
             step.has_response = True
@@ -363,7 +418,7 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
         for item in data:
             list_item = json.dumps(item)
             batch_prompt = tpl.substitute({"LIST": (",\n".join(batch_inputs + [list_item]))})
-            if _count_words(llm_config, batch_prompt) * 2 > llm_config.options['num_ctx'] or len(batch_inputs) >= 50:
+            if _count_words(llm_config, batch_prompt) * 2 > llm_config.options.get("num_ctx", DEFAULT_NUM_CTX) or len(batch_inputs) >= 50:
                 log.debug(f"Passing {len(batch_inputs)} items, {batch_prompt.count(' ')} words to LLM")
                 batch_number += 1
                 while True:

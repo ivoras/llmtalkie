@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
+import os
 import re
 from time import sleep
-
 import pprint
+
+from dotenv import load_dotenv
 import requests
 import feedparser
 
 from llmtalkie import LLMTalkie, LLMStep, LLMConfig
 
+load_dotenv()
+
 # Why 2 LLMs? The first one knows the Bible, the second one knows how to write good sermons ;)
 
 LLM_LOCAL_COMMAND_R = LLMConfig(
     url = "http://localhost:11434/api/chat",
-    model_name = "command-r:35b-08-2024-q4_K_S",
+    model_name = "mistral-small", #"qwen2.5:32b-instruct-q4_K_M",
     system_message = "You are a helpful research, religious assistent of the Roman Catholic faith, analyzing news topics. You output only JSON documents and nothing else. Do not output explanations or comments. Stop after outputting JSON.",
     temperature = 0.2,
     options = {
@@ -32,6 +36,26 @@ LLM_LOCAL_DARKEST_PLANET = LLMConfig(
     }
 )
 
+
+LLM_DEEPSEEK_RESEARCHER = LLMConfig(
+    url = "https://api.deepseek.com/chat/completions",
+    model_name = "deepseek-chat",
+    system_message = "You are a helpful researcher, religious assistent of the Roman Catholic faith, analyzing news topics. You output only JSON documents and nothing else. Do not output explanations or comments. Stop after outputting JSON.",
+    temperature = 0.2,
+    api_key = os.getenv("DEEPSEEK_API_KEY", None),
+    api_style = "openai",
+)
+
+LLM_DEEPSEEK_PREACHER = LLMConfig(
+    url = "https://api.deepseek.com/chat/completions",
+    model_name = "deepseek-chat",
+    system_message = "You are a prophet of the Lord, of the Roman Catholic faith. You write sermons that inspire people to change their lives and participate in solving big world problems. Your sermons are long and sometimes reference Bible verses, your optimism and faith in the Lord and in the betterment of humanity are contagious.",
+    temperature = 0.8,
+    api_key = os.getenv("DEEPSEEK_API_KEY", None),
+    api_style = "openai",
+)
+
+
 def main():
     talkie = LLMTalkie()
 
@@ -39,7 +63,7 @@ def main():
     d = feedparser.parse("https://feeds.bbci.co.uk/news/world/rss.xml")
     # Ask the LLM to generate Bible references relating to world news
     step1 = LLMStep(
-        llm_config = LLM_LOCAL_COMMAND_R,
+        llm_config = LLM_DEEPSEEK_RESEARCHER,
         input_data = {"news_items": "\n".join(f"* {entry.title}. {entry.description}" for entry in d.entries) },
         prompt = """
 In the following news items, find 3 topics that are of greates concern to pious Catholics, having an impact on their duties, beliefs or institutions. For each of those topics, find a Bible reference that is most suitable for the topic.
@@ -64,7 +88,7 @@ $news_items
     )
 
     step2 = LLMStep(
-        llm_config = LLM_LOCAL_DARKEST_PLANET,
+        llm_config = LLM_DEEPSEEK_PREACHER,
         input_callback = lambda step: { "topic_sections": "\n".join([f"## {t['topic']}\n\n* Bible reference: {t['bible_reference']}\n* Bible quote: {t['bible_quote']}\n* Relation to the world events: {t['news_item']}\n" for t in step.previous_step.response['topics']]) },
         prompt = """
 Write a sermon worthy of the Pope on the impact of the topics described in the following sections on the modern world.
@@ -80,7 +104,7 @@ $topic_sections
     )
 
     step3 = LLMStep(
-        llm_config = LLM_LOCAL_DARKEST_PLANET,
+        llm_config = LLM_DEEPSEEK_PREACHER,
         input_callback = lambda step: step.previous_step.prompt_data,
         include_history = False,
         prompt = """
@@ -92,6 +116,7 @@ Start with "What can we do?" and end with "Amen."
 $topic_sections
 """.lstrip(),
         json_response = False,
+        validation_callback = lambda step: len(step.raw_response) < 2000,
     )
 
     talkie.execute_steps([step1, step2, step3])
