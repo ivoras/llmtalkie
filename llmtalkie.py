@@ -124,11 +124,12 @@ class LLMTalkie:
     A LLM pipeline orchestrator.
     """
 
-    def __init__(self, *, llm_config: LLMConfig = None, llm_retry: int = 5):
+    def __init__(self, *, llm_config: LLMConfig = None, llm_retry: int = 5, log_file: str = None):
         if llm_config is None:
             llm_config = LLM_LOCAL_LLAMA32
         self.llm_config = llm_config
         self.llm_retry = llm_retry
+        self.log = open(log_file, 'wt') if log_file else None
 
     def new_step(self, *,
                  llm_config: LLMConfig = None,
@@ -201,6 +202,7 @@ class LLMTalkie:
                 "role": step.role,
                 "content": content,
             })
+            if self.log: self.log.write(json.dumps(messages, indent=2))
 
             messages_word_count = _count_messages_tokens(step.llm_config, messages)
             log.info(f"*** Messages approx word count: {messages_word_count}")
@@ -358,7 +360,7 @@ def LLMMap(llm_config: LLMConfig, prompt: str, data: Iterable) -> list:
     results = []
     batch_number = 0
 
-    f = open('_prompt.json', 'wt')
+    f = open('_prompt.json', 'at')
 
     def llm_process(prompt: str) -> list[str]:
         response = None
